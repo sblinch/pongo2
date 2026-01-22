@@ -183,6 +183,7 @@ func (vr *variableResolver) resolveInterface(ctx *ExecutionContext, i interface{
 			AutoescapeFilter:        ctx.template.Options.AutoescapeFilter,
 			DisableContextFunctions: ctx.DisableContextFunctions,
 			DisableNestedFunctions:  ctx.DisableNestedFunctions,
+			IgnoreVariableCase:      ctx.IgnoreVariableCase,
 		})
 
 		resolved, err := it.Evaluate(ctx.Public)
@@ -206,6 +207,7 @@ func (vr *variableResolver) resolveInterface(ctx *ExecutionContext, i interface{
 			AutoescapeFilter:        ctx.template.Options.AutoescapeFilter,
 			DisableContextFunctions: ctx.DisableContextFunctions,
 			DisableNestedFunctions:  ctx.DisableNestedFunctions,
+			IgnoreVariableCase:      ctx.IgnoreVariableCase,
 		})
 		resolved, err := tpl.Evaluate(ctx.Public)
 		if err != nil {

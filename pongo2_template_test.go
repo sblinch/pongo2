@@ -624,6 +624,40 @@ func TestBaseDirectory(t *testing.T) {
 	}
 }
 
+func TestCaseInsensitive(t *testing.T) {
+	ts := pongo2.NewSet("test case-insensitive variable lookup", pongo2.DefaultLoader)
+	ts.Options.IgnoreVariableCase = true
+
+	tests := []struct {
+		Name   string
+		Tpl    string
+		Expect string
+	}{
+		{"forloop", `{% for comment in complex.comments %}
+		<h2>{{ forloop.counter }}. Comment ({{ forloop.revcounter}} comment{{ forloop.revcounter|pluralize:"s" }} left)</h2>
+{% endfor %}
+`, "\n\t\t<h2>1. Comment (3 comments left)</h2>\n\n\t\t<h2>2. Comment (2 comments left)</h2>\n\n\t\t<h2>3. Comment (1 comment left)</h2>\n\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.Name, func(t *testing.T) {
+			tpl, err := ts.FromString(tt.Tpl)
+			if err != nil {
+				t.Errorf("Error: %v\n", err)
+				return
+			}
+
+			s, err := tpl.Execute(tplContext)
+			if err != nil {
+				t.Errorf("Error: %v\n", err)
+				return
+			}
+			if s != tt.Expect {
+				t.Errorf("%s failed:\nwant: %q\n got: %q", tt.Name, tt.Expect, s)
+			}
+		})
+	}
+}
+
 func BenchmarkCache(b *testing.B) {
 	cacheSet := pongo2.NewSet("cache set", pongo2.MustNewLocalFileSystemLoader(""))
 	for b.Loop() {
