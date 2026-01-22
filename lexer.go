@@ -95,7 +95,7 @@ var (
 
 	// TokenKeywords lists all reserved words in the template language.
 	// These cannot be used as variable or filter names.
-	TokenKeywords = []string{"in", "and", "or", "not", "true", "false", "as", "export"}
+	TokenKeywords = []string{"in", "and", "or", "not", "true", "false", "as", "export", "is"}
 
 	// tokenKeywordsMap is a pre-compiled map for O(1) keyword lookup.
 	// This is more efficient than iterating through the TokenKeywords slice.
@@ -108,6 +108,7 @@ var (
 		"false":  {},
 		"as":     {},
 		"export": {},
+		"is":     {},
 	}
 
 	// stringEscapeReplacer is a pre-compiled replacer for handling escape

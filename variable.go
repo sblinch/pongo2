@@ -464,6 +464,14 @@ func (vr *variableResolver) handleFunctionCall(
 	current reflect.Value,
 	part *variablePart,
 ) (*callResult, error) {
+
+	// this is a hack to allow the caller to pass part.i=1 to request the actual Func itself, rather than the
+	// result of invoking it; this is required for 'callable' test support, which doesn't seem worthy of adding
+	// an extra flag (and consuming additional memory) in variablePart
+	if part.i == 1 {
+		return &callResult{value: current, isSafe: true}, nil
+	}
+
 	if current.Kind() != reflect.Func {
 		return nil, fmt.Errorf("'%s' is not a function (it is %s)", vr.String(), current.Kind().String())
 	}
