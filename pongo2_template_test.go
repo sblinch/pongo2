@@ -658,6 +658,54 @@ func TestCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestTranslate(t *testing.T) {
+	ts := pongo2.NewSet("test translation tag", pongo2.DefaultLoader)
+	ts.Options.Translator = func(msg string, args ...any) string {
+		return strings.ToUpper(fmt.Sprintf(msg, args...))
+	}
+
+	tc := pongo2.Context{
+		"myvar": "variable",
+	}
+
+	tests := []struct {
+		Name   string
+		Tpl    string
+		Expect string
+	}{
+		{"translate", `<title>{% translate "This is the title." %}</title>`, `<title>THIS IS THE TITLE.</title>`},
+		{"translate-literal", `<title>{% translate "This is the %s.", "bomb" %}</title>`, `<title>THIS IS THE BOMB.</title>`},
+		{"translate-var", `<title>{% translate "This is the %s.", myvar %}</title>`, `<title>THIS IS THE VARIABLE.</title>`},
+		{"translate-var-lit", `<title>{% translate "This is %s number %d.", myvar, 7 %}</title>`, `<title>THIS IS VARIABLE NUMBER 7.</title>`},
+		{"translate-var-only", `<title>{% translate myvar %}</title>`, `<title>VARIABLE</title>`},
+
+		{"translate-as", `{% translate "This is the title." as title %}<title>{{ title }}</title>`, `<title>THIS IS THE TITLE.</title>`},
+		{"translate-as-literal", `{% translate "This is the %s.", "bomb" as title %}<title>{{ title }}</title>`, `<title>THIS IS THE BOMB.</title>`},
+		{"translate-as-var", `{% translate "This is the %s.", myvar as title %}<title>{{ title }}</title>`, `<title>THIS IS THE VARIABLE.</title>`},
+		{"translate-as-var-lit", `{% translate "This is %s number %d.", myvar, 7 as title %}<title>{{ title }}</title>`, `<title>THIS IS VARIABLE NUMBER 7.</title>`},
+
+		{"translate-func", `{% set title=_("I translated this.") %}<title>{{ title }}</title>`, `<title>I TRANSLATED THIS.</title>`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.Name, func(t *testing.T) {
+			tpl, err := ts.FromString(tt.Tpl)
+			if err != nil {
+				t.Errorf("Error: %v\n", err)
+				return
+			}
+
+			s, err := tpl.Execute(tc)
+			if err != nil {
+				t.Errorf("Error: %v\n", err)
+				return
+			}
+			if s != tt.Expect {
+				t.Errorf("%s failed:\nwant: %q\n got: %q", tt.Name, tt.Expect, s)
+			}
+		})
+	}
+}
+
 func BenchmarkCache(b *testing.B) {
 	cacheSet := pongo2.NewSet("cache set", pongo2.MustNewLocalFileSystemLoader(""))
 	for b.Loop() {

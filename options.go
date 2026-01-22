@@ -27,6 +27,9 @@ type Options struct {
 
 	// If this is set to true, struct fields, map keys, and variable names will be treated as case-insensitive.
 	IgnoreVariableCase bool
+
+	// Assigns a translation function to be used for the translate tag.
+	Translator TranslateFunc
 }
 
 func newOptions() *Options {
@@ -50,6 +53,7 @@ func (opt *Options) Update(other *Options) *Options {
 	opt.DisableContextFunctions = other.DisableContextFunctions
 	opt.DisableNestedFunctions = other.DisableNestedFunctions
 	opt.IgnoreVariableCase = other.IgnoreVariableCase
+	opt.Translator = other.Translator
 
 	return opt
 }
