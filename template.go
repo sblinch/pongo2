@@ -254,44 +254,84 @@ type IEvaluate interface {
 	Evaluate(ctx *ExecutionContext) (*Value, error)
 }
 
-func (tpl *Template) Evaluate(context Context) (interface{}, bool, error) {
+type MultiPart []interface{}
+
+func (tpl *Template) Evaluate(context Context) (interface{}, error) {
 	parent, ctx, err := tpl.newContextForExecution(context)
 	if err != nil {
-		return nil, false, err
+		return nil, err
+	}
+
+	if len(parent.root.Nodes) == 0 {
+		return "", nil
 	}
 
 	w := strings.Builder{}
 
-	var r []interface{}
+	var r MultiPart
 	multinode := len(parent.root.Nodes) > 1
 	if multinode {
-		r = make([]interface{}, 0, len(parent.root.Nodes))
+		r = make(MultiPart, 0, len(parent.root.Nodes))
 	}
+
+	allStrings := true
 	for _, n := range parent.root.Nodes {
 		if e, ok := n.(IEvaluate); ok {
 			v, err := e.Evaluate(ctx)
 			if err != nil {
-				return nil, false, err
+				return nil, err
 			}
+
+			intf := v.Interface()
+			switch x := intf.(type) {
+			case []*Value:
+				r := make([]interface{}, 0, len(x))
+				for _, v := range x {
+					r = append(r, v.Interface())
+				}
+				intf = r
+			case map[string]*Value:
+				r := make(map[string]interface{}, len(x))
+				for k, v := range x {
+					r[k] = v.Interface()
+				}
+				intf = r
+			}
+
 			if multinode {
-				r = append(r, v.Interface())
+				if !v.IsString() {
+					allStrings = false
+				}
+				r = append(r, intf)
 			} else {
-				return v.Interface(), false, nil
+				return intf, nil
 			}
 		} else {
 			if err := n.Execute(ctx, &w); err != nil {
-				return nil, false, err
+				return nil, err
 			}
 			if multinode {
 				r = append(r, w.String())
 				w.Reset()
 			} else {
-				return w.String(), false, nil
+				return w.String(), nil
 			}
 		}
 	}
 
-	return r, multinode, nil
+	if len(r) == 0 {
+		return "", nil
+	}
+
+	if allStrings {
+		w.Reset()
+		for _, v := range r {
+			w.WriteString(v.(string))
+		}
+		return w.String(), nil
+	}
+
+	return r, nil
 }
 
 // execute is the internal execution method that renders the template to a TemplateWriter.

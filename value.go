@@ -563,7 +563,6 @@ func (v *Value) SetElement(name string, value *Value) {
 	rv := v.getResolvedValue()
 	switch rv.Kind() {
 	case reflect.Map:
-		//		println("set element",name,"of",v.String(),"to",value.String())
 		rv.SetMapIndex(reflect.ValueOf(name), value.getResolvedValue())
 	}
 }
