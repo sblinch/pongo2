@@ -476,13 +476,17 @@ func (p *Parser) parseRelationalExpression() (IEvaluator, error) {
 		}
 		expr.opToken = t
 		expr.expr2 = expr2
-	} else if t := p.MatchOne(TokenKeyword, "in"); t != nil {
-		expr2, err := p.parseSimpleExpression()
-		if err != nil {
-			return nil, err
+	} else if t := p.MatchOne(TokenKeyword, "in", "is"); t != nil {
+		if t.Val == "in" {
+			expr2, err := p.parseSimpleExpression()
+			if err != nil {
+				return nil, err
+			}
+			expr.opToken = t
+			expr.expr2 = expr2
+		} else {
+			return p.parseTest(expr1)
 		}
-		expr.opToken = t
-		expr.expr2 = expr2
 	}
 
 	if expr.expr2 == nil {
