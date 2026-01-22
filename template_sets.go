@@ -47,9 +47,10 @@ type TemplateSet struct {
 	Options *Options
 
 	// Per-set tag and filter registries (lazily initialized via initOnce)
-	tags     map[string]*tag
-	filters  map[string]FilterFunction
-	initOnce sync.Once
+	tags       map[string]*tag
+	filters    map[string]FilterFunction
+	filterArgs map[string]FilterArgsFunction
+	initOnce   sync.Once
 
 	// Sandbox features
 	// - Disallow access to specific tags and/or filters (using BanTag() and BanFilter())
@@ -102,6 +103,7 @@ func (set *TemplateSet) AddLoader(loaders ...TemplateLoader) {
 func (set *TemplateSet) initBuiltins() {
 	set.tags = copyTags(builtinTags)
 	set.filters = copyFilters(builtinFilters)
+	set.filterArgs = copyFilterArgs(builtinFilterArgs)
 }
 
 func (set *TemplateSet) resolveFilename(tpl *Template, path string) string {
@@ -144,7 +146,10 @@ func (set *TemplateSet) BanFilter(name string) error {
 	set.initOnce.Do(set.initBuiltins)
 	_, has := set.filters[name]
 	if !has {
-		return fmt.Errorf("filter '%s' not found", name)
+		_, has = set.filterArgs[name]
+		if !has {
+			return fmt.Errorf("filter '%s' not found", name)
+		}
 	}
 	if set.firstTemplateCreated.Load() {
 		return errors.New("you cannot ban any filters after you've added your first template to your template set")
@@ -162,10 +167,27 @@ func (set *TemplateSet) BanFilter(name string) error {
 func (set *TemplateSet) RegisterFilter(name string, fn FilterFunction) error {
 	set.initOnce.Do(set.initBuiltins)
 	_, existing := set.filters[name]
+	if !existing {
+		_, existing = set.filterArgs[name]
+	}
 	if existing {
 		return fmt.Errorf("filter with name '%s' is already registered", name)
 	}
 	set.filters[name] = fn
+	return nil
+}
+
+// RegisterFilterArgs registers a new Jinja2-style filter for this template set.
+func (set *TemplateSet) RegisterFilterArgs(name string, fn FilterArgsFunction) error {
+	set.initOnce.Do(set.initBuiltins)
+	_, existing := set.filterArgs[name]
+	if !existing {
+		_, existing = set.filters[name]
+	}
+	if existing {
+		return fmt.Errorf("filter with name '%s' is already registered", name)
+	}
+	set.filterArgs[name] = fn
 	return nil
 }
 
@@ -180,9 +202,27 @@ func (set *TemplateSet) ReplaceFilter(name string, fn FilterFunction) error {
 	set.initOnce.Do(set.initBuiltins)
 	_, existing := set.filters[name]
 	if !existing {
-		return fmt.Errorf("filter with name '%s' does not exist (therefore cannot be overridden)", name)
+		if _, existing = set.filterArgs[name]; !existing {
+			return fmt.Errorf("filter with name '%s' does not exist (therefore cannot be overridden)", name)
+		}
+		delete(set.filterArgs, name)
 	}
 	set.filters[name] = fn
+	return nil
+}
+
+// ReplaceFilterArgs replaces an already registered filter in this template set.
+// Use this function with caution since it allows you to change existing filter behaviour.
+func (set *TemplateSet) ReplaceFilterArgs(name string, fn FilterArgsFunction) error {
+	set.initOnce.Do(set.initBuiltins)
+	_, existing := set.filters[name]
+	if !existing {
+		if _, existing = set.filters[name]; !existing {
+			return fmt.Errorf("filter with name '%s' does not exist (therefore cannot be overridden)", name)
+		}
+		delete(set.filters, name)
+	}
+	set.filterArgs[name] = fn
 	return nil
 }
 
@@ -221,6 +261,9 @@ func (set *TemplateSet) ReplaceTag(name string, parserFn TagParser) error {
 func (set *TemplateSet) FilterExists(name string) bool {
 	set.initOnce.Do(set.initBuiltins)
 	_, existing := set.filters[name]
+	if !existing {
+		_, existing = set.filterArgs[name]
+	}
 	return existing
 }
 
@@ -241,6 +284,10 @@ func (set *TemplateSet) ApplyFilter(name string, value *Value, param *Value) (*V
 	set.initOnce.Do(set.initBuiltins)
 	fn, existing := set.filters[name]
 	if !existing {
+		if fan, existing := set.filterArgs[name]; existing {
+			return fan(value, NewArgs(nil, param))
+		}
+
 		return nil, &Error{
 			Sender:    "applyfilter",
 			OrigError: fmt.Errorf("filter with name '%s' not found", name),
@@ -255,10 +302,41 @@ func (set *TemplateSet) ApplyFilter(name string, value *Value, param *Value) (*V
 	return fn(value, param)
 }
 
+// ApplyFilterArgs applies a Jinja2-style filter registered in this template set to a given value
+// using the given parameters. Returns a *pongo2.Value or an error.
+// This is useful for applying set-specific filters, including any custom filters
+// registered with RegisterFilterArgs or replaced with ReplaceFilterArgs.
+func (set *TemplateSet) ApplyFilterArgs(name string, value *Value, args *Args) (*Value, error) {
+	set.initOnce.Do(set.initBuiltins)
+	fn, existing := set.filterArgs[name]
+	if !existing {
+		return nil, &Error{
+			Sender:    "applyfilter",
+			OrigError: fmt.Errorf("filter with name '%s' not found", name),
+		}
+	}
+
+	if args == nil {
+		args = NewArgs(nil, nil)
+	}
+
+	return fn(value, args)
+}
+
 // MustApplyFilter behaves like ApplyFilter, but panics on an error.
 // This uses the template set's filter registry.
 func (set *TemplateSet) MustApplyFilter(name string, value *Value, param *Value) *Value {
 	val, err := set.ApplyFilter(name, value, param)
+	if err != nil {
+		panic(err)
+	}
+	return val
+}
+
+// MustApplyFilterArgs behaves like ApplyFilterArgs, but panics on an error.
+// This uses the template set's filter registry.
+func (set *TemplateSet) MustApplyFilterArgs(name string, value *Value, args *Args) *Value {
+	val, err := set.ApplyFilterArgs(name, value, args)
 	if err != nil {
 		panic(err)
 	}
