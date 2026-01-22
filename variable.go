@@ -14,6 +14,7 @@ const (
 	varTypeSubscript
 	varTypeArray
 	varTypeNil
+	varTypeDict
 )
 
 var (
@@ -42,6 +43,8 @@ func (p *variablePart) String() string {
 		return "[subscript]"
 	case varTypeArray:
 		return "[array]"
+	case varTypeDict:
+		return "[dict]"
 	}
 
 	panic("unimplemented")
@@ -246,8 +249,13 @@ func (vr *variableResolver) String() string {
 
 func (vr *variableResolver) resolve(ctx *ExecutionContext) (*Value, error) {
 	// Handle in-template array definition
-	if len(vr.parts) > 0 && vr.parts[0].typ == varTypeArray {
-		return vr.resolveArrayDefinition(ctx)
+	if len(vr.parts) > 0 {
+		switch vr.parts[0].typ {
+		case varTypeArray:
+			return vr.resolveArrayDefinition(ctx)
+		case varTypeDict:
+			return vr.resolveDictDefinition(ctx)
+		}
 	}
 
 	var current reflect.Value
@@ -292,9 +300,96 @@ func (vr *variableResolver) resolve(ctx *ExecutionContext) (*Value, error) {
 		if !current.IsValid() {
 			return AsValue(nil), nil
 		}
+
+		if ctx.DeepResolve {
+			if updated, modified, err := vr.resolveDeep(ctx, current); err != nil {
+				return nil, err
+
+			} else if modified {
+				current = updated
+			}
+		}
+
 	}
 
 	return &Value{val: current, safe: isSafe}, nil
+}
+
+func (vr *variableResolver) resolveTemplate(ctx *ExecutionContext, current reflect.Value) (reflect.Value, bool, error) {
+	switch current.Kind() {
+	case reflect.Ptr:
+		if vtpl, ok := current.Interface().(*Template); ok {
+			if evaluated, err := vtpl.Evaluate(ctx.Public); err == nil {
+				return reflect.ValueOf(evaluated), true, nil
+			} else {
+				return reflect.Value{}, false, err
+			}
+		}
+	}
+
+	return current, false, nil
+}
+
+func (vr *variableResolver) resolveNestedTemplates(ctx *ExecutionContext, current reflect.Value) (reflect.Value, bool, error) {
+	switch current.Kind() {
+	case reflect.Map:
+		modified := false
+		keys := current.MapKeys()
+		for _, key := range keys {
+			newValue, vModified, err := vr.resolveNestedTemplates(ctx, current.MapIndex(key))
+			if err != nil {
+				return reflect.Value{}, false, err
+			}
+			if vModified {
+				modified = true
+				current.SetMapIndex(key, newValue)
+			}
+		}
+		return current, modified, nil
+
+	case reflect.Slice:
+		modified := false
+		sliceLen := current.Len()
+		for i := 0; i < sliceLen; i++ {
+			item := current.Index(i)
+			newValue, vModified, err := vr.resolveNestedTemplates(ctx, item)
+			if err != nil {
+				return reflect.Value{}, false, err
+			}
+			if vModified {
+				modified = true
+				item.Set(newValue)
+			}
+		}
+		return current, modified, nil
+
+	case reflect.Struct:
+		modified := false
+		fieldLen := current.NumField()
+		for i := 0; i < fieldLen; i++ {
+			item := current.Field(i)
+			newValue, vModified, err := vr.resolveNestedTemplates(ctx, item)
+			if err != nil {
+				return reflect.Value{}, false, err
+			}
+			if vModified {
+				modified = true
+				item.Set(newValue)
+			}
+		}
+		return current, modified, nil
+
+	case reflect.Ptr:
+		if vtpl, ok := current.Interface().(*Template); ok {
+			if evaluated, err := vtpl.Evaluate(ctx.Public); err == nil {
+				return reflect.ValueOf(evaluated), true, nil
+			} else {
+				return reflect.Value{}, false, err
+			}
+		}
+	}
+
+	return current, false, nil
 }
 
 // resolveArrayDefinition handles in-template array definitions like [a, b, c].
@@ -305,11 +400,29 @@ func (vr *variableResolver) resolveArrayDefinition(ctx *ExecutionContext) (*Valu
 		if !ok {
 			return nil, errors.New("unknown variable type is given")
 		}
-		item, err := v.resolver.Evaluate(ctx)
+		item, err := v.Evaluate(ctx)
 		if err != nil {
 			return nil, err
 		}
 		items = append(items, item)
+	}
+	return &Value{val: reflect.ValueOf(items), safe: true}, nil
+}
+
+// resolveDictDefinition handles in-template dict definitions like {'foo': 'bar'}.
+func (vr *variableResolver) resolveDictDefinition(ctx *ExecutionContext) (*Value, error) {
+	items := make(map[string]*Value)
+	for _, part := range vr.parts {
+		v, ok := part.subscript.(*nodeFilteredVariable)
+		if !ok {
+			return nil, errors.New("unknown variable type is given")
+		}
+		item, err := v.Evaluate(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		items[part.s] = item
 	}
 	return &Value{val: reflect.ValueOf(items), safe: true}, nil
 }
@@ -702,6 +815,73 @@ func (p *Parser) parseNumberLiteral(sign int, numToken *Token, locToken *Token) 
 		return nil, p.Error(err.Error(), numToken)
 	}
 	return &intResolver{locationToken: locToken, val: sign * i}, nil
+}
+
+// IDENT | IDENT.(IDENT|NUMBER)... | IDENT[expr]... | "[" [ expr {, expr}] "]"
+func (p *Parser) parseDict() (IEvaluator, error) {
+	resolver := &variableResolver{
+		locationToken: p.Current(),
+	}
+	p.Consume() // consume '{'
+
+	// We allow an empty dict, so check for a closing brace.
+	if t2 := p.Match(TokenSymbol, "}"); t2 != nil {
+		return resolver, nil
+	}
+
+	for {
+		if p.Remaining() == 0 {
+			return nil, p.Error("Unexpected EOF, unclosed dict.", p.lastToken)
+		}
+
+		key, err := p.parseDictKey()
+		if err != nil {
+			return nil, err
+		}
+
+		val, err := p.ParseExpression()
+		if err != nil {
+			return nil, err
+		}
+
+		resolver.parts = append(resolver.parts, &variablePart{
+			typ:       varTypeDict,
+			s:         key,
+			subscript: val,
+		})
+
+		if p.Match(TokenSymbol, "}") != nil {
+			// If there's a closing bracket after an expression, we will stop parsing the arguments
+			break
+		}
+
+		// If there's NO closing bracket, there MUST be an comma
+		if p.Match(TokenSymbol, ",") == nil {
+			return nil, p.Error("Missing comma or closing brace after argument.", p.Current())
+		}
+	}
+
+	return resolver, nil
+}
+
+func (p *Parser) parseDictKey() (string, error) {
+	key := ""
+
+	t := p.Current()
+	switch t.Typ {
+	case TokenIdentifier, TokenString, TokenNumber:
+		p.Consume()
+		key = t.Val
+
+	default:
+		return "", p.Error("expected identifier, string, or number for dict key", nil)
+	}
+
+	if p.Match(TokenSymbol, ":") == nil {
+		return "", p.Error("expected ':'", nil)
+	}
+
+	return key, nil
 }
 
 // IDENT | IDENT.(IDENT|NUMBER)... | IDENT[expr]... | "[" [ expr {, expr}] "]"
