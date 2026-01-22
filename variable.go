@@ -540,6 +540,26 @@ func (vr *variableResolver) resolveStructField(current reflect.Value, fieldName 
 			return strings.ToLower(name) == lowerName
 		})
 	}
+	if !rv.IsValid() {
+		// see if there is an anonymous embedded struct that has a field with this name
+		typ := current.Type()
+		for i := range typ.NumField() {
+			var sf = typ.Field(i)
+			if sf.Anonymous {
+				var f = current.Field(i)
+
+				for f.Kind() == reflect.Ptr && f.IsValid() && !f.IsNil() {
+					f = f.Elem()
+				}
+
+				if f.Kind() == reflect.Struct {
+					if rv = vr.resolveStructField(f, fieldName, ignoreCase); rv.IsValid() {
+						break
+					}
+				}
+			}
+		}
+	}
 	return rv
 }
 
