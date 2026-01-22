@@ -81,6 +81,12 @@ type ExecutionContext struct {
 	// containing template tags are further resolved.
 	DeepResolve bool
 
+	// If this is set to true, functions directly assigned as context variables cannot be called.
+	DisableContextFunctions bool
+
+	// If this is set to true, functions within context variables (such as struct member functions) cannot be called.
+	DisableNestedFunctions bool
+
 	// User-provided data from Execute(). Treat as READ-ONLY to avoid side effects.
 	Public Context
 
@@ -107,10 +113,12 @@ func newExecutionContext(tpl *Template, ctx Context) *ExecutionContext {
 	return &ExecutionContext{
 		template: tpl,
 
-		Public:      ctx,
-		Private:     privateCtx,
-		Autoescape:  tpl.set.autoescape,
-		DeepResolve: tpl.Options.DeepResolve,
+		Public:                  ctx,
+		Private:                 privateCtx,
+		Autoescape:              tpl.set.autoescape,
+		DeepResolve:             tpl.Options.DeepResolve,
+		DisableContextFunctions: tpl.Options.DisableContextFunctions,
+		DisableNestedFunctions:  tpl.Options.DisableNestedFunctions,
 	}
 }
 
@@ -123,10 +131,12 @@ func NewChildExecutionContext(parent *ExecutionContext) *ExecutionContext {
 	newctx := &ExecutionContext{
 		template: parent.template,
 
-		Public:      parent.Public,
-		Private:     make(Context),
-		Autoescape:  parent.Autoescape,
-		DeepResolve: parent.DeepResolve,
+		Public:                  parent.Public,
+		Private:                 make(Context),
+		Autoescape:              parent.Autoescape,
+		DeepResolve:             parent.DeepResolve,
+		DisableContextFunctions: parent.DisableContextFunctions,
+		DisableNestedFunctions:  parent.DisableNestedFunctions,
 	}
 	newctx.Shared = parent.Shared
 

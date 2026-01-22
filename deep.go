@@ -179,8 +179,10 @@ func (vr *variableResolver) resolveInterface(ctx *ExecutionContext, i interface{
 
 	case *Template:
 		it.Options.Update(&Options{
-			DeepResolve:      ctx.DeepResolve,
-			AutoescapeFilter: ctx.template.Options.AutoescapeFilter,
+			DeepResolve:             ctx.DeepResolve,
+			AutoescapeFilter:        ctx.template.Options.AutoescapeFilter,
+			DisableContextFunctions: ctx.DisableContextFunctions,
+			DisableNestedFunctions:  ctx.DisableNestedFunctions,
 		})
 
 		resolved, err := it.Evaluate(ctx.Public)
@@ -200,8 +202,10 @@ func (vr *variableResolver) resolveInterface(ctx *ExecutionContext, i interface{
 			return nil, false, err
 		}
 		tpl.Options.Update(&Options{
-			DeepResolve:      ctx.DeepResolve,
-			AutoescapeFilter: ctx.template.Options.AutoescapeFilter,
+			DeepResolve:             ctx.DeepResolve,
+			AutoescapeFilter:        ctx.template.Options.AutoescapeFilter,
+			DisableContextFunctions: ctx.DisableContextFunctions,
+			DisableNestedFunctions:  ctx.DisableNestedFunctions,
 		})
 		resolved, err := tpl.Evaluate(ctx.Public)
 		if err != nil {
