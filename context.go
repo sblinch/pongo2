@@ -90,6 +90,9 @@ type ExecutionContext struct {
 	// If this is set to true, struct fields, map keys, and variable names will be treated as case-insensitive.
 	IgnoreVariableCase bool
 
+	// Assigns a translation function to be used for the translate tag.
+	Translator TranslateFunc
+
 	// User-provided data from Execute(). Treat as READ-ONLY to avoid side effects.
 	Public Context
 
@@ -113,6 +116,9 @@ func newExecutionContext(tpl *Template, ctx Context) *ExecutionContext {
 	// Make the pongo2-related funcs/vars available to the context
 	privateCtx["pongo2"] = pongo2MetaContext
 
+	// Assign the django-style translation function to allow _("foo") in templates
+	privateCtx["_"] = tpl.Options.Translator
+
 	return &ExecutionContext{
 		template: tpl,
 
@@ -123,6 +129,7 @@ func newExecutionContext(tpl *Template, ctx Context) *ExecutionContext {
 		DisableContextFunctions: tpl.Options.DisableContextFunctions,
 		DisableNestedFunctions:  tpl.Options.DisableNestedFunctions,
 		IgnoreVariableCase:      tpl.Options.IgnoreVariableCase,
+		Translator:              tpl.Options.Translator,
 	}
 }
 
@@ -142,6 +149,7 @@ func NewChildExecutionContext(parent *ExecutionContext) *ExecutionContext {
 		DisableContextFunctions: parent.DisableContextFunctions,
 		DisableNestedFunctions:  parent.DisableNestedFunctions,
 		IgnoreVariableCase:      parent.IgnoreVariableCase,
+		Translator:              parent.Translator,
 	}
 	newctx.Shared = parent.Shared
 
