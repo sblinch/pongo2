@@ -92,13 +92,13 @@ func tagIfParser(doc *Parser, start *Token, arguments *Parser) (INodeTag, error)
 
 	// Check the rest
 	for {
-		wrapper, tagArgs, err := doc.WrapUntilTag("elif", "else", "endif")
+		wrapper, tagArgs, err := doc.WrapUntilTag("elif", "elseif", "else", "endif")
 		if err != nil {
 			return nil, err
 		}
 		ifNode.wrappers = append(ifNode.wrappers, wrapper)
 
-		if wrapper.Endtag == "elif" {
+		if wrapper.Endtag == "elif" || wrapper.Endtag == "elseif" {
 			// elif can take a condition
 			condition, err = tagArgs.ParseExpression()
 			if err != nil {
