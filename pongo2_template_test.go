@@ -663,6 +663,7 @@ func TestTranslate(t *testing.T) {
 	ts.Options.Translator = func(msg string, args ...any) string {
 		return strings.ToUpper(fmt.Sprintf(msg, args...))
 	}
+	ts.Options.EnableTranslatorShorthand = true
 
 	tc := pongo2.Context{
 		"myvar": "variable",
@@ -685,6 +686,11 @@ func TestTranslate(t *testing.T) {
 		{"translate-as-var-lit", `{% translate "This is %s number %d.", myvar, 7 as title %}<title>{{ title }}</title>`, `<title>THIS IS VARIABLE NUMBER 7.</title>`},
 
 		{"translate-func", `{% set title=_("I translated this.") %}<title>{{ title }}</title>`, `<title>I TRANSLATED THIS.</title>`},
+
+		{"translate-alt", `<title>{% "This is the title." %}</title>`, `<title>THIS IS THE TITLE.</title>`},
+		{"translate-alt-literal", `<title>{% "This is the %s.", "bomb" %}</title>`, `<title>THIS IS THE BOMB.</title>`},
+		{"translate-alt-var", `<title>{% "This is the %s.", myvar %}</title>`, `<title>THIS IS THE VARIABLE.</title>`},
+		{"translate-alt-var-lit", `<title>{% "This is %s number %d.", myvar, 7 %}</title>`, `<title>THIS IS VARIABLE NUMBER 7.</title>`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
