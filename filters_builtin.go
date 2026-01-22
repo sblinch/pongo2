@@ -15,11 +15,13 @@ import (
 	"fmt"
 	"math/rand"
 	"net/url"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"golang.org/x/text/cases"
@@ -140,6 +142,20 @@ func init() {
 
 const ellipsis = "…"
 
+// checkModified compares a filter's output string to its input string; if they're different, it allocates and returns a
+// new *Value containing out; otherwise the original value v is returned to avoid unnecessary allocations
+func checkModified(in, out string, v *Value) (*Value, error) {
+	if in == out {
+		return v, nil
+	} else {
+		return AsValue(out), nil
+	}
+}
+
+const emptyStr = ""
+
+var emptyStringValue = AsValue(emptyStr)
+
 func filterTruncatecharsHelper(s string, newLen int) string {
 	runes := []rune(s)
 	if newLen < len(runes) {
@@ -150,7 +166,7 @@ func filterTruncatecharsHelper(s string, newLen int) string {
 		// Django returns just the ellipsis for length <= 0
 		return ellipsis
 	}
-	return string(runes)
+	return s
 }
 
 func filterTruncateHTMLHelper(value string, newOutput *bytes.Buffer, cond func() bool, fn func(c rune, s int, idx int) int, finalize func()) {
@@ -255,7 +271,7 @@ func filterTruncateHTMLHelper(value string, newOutput *bytes.Buffer, cond func()
 	for i := len(tagStack) - 1; i >= 0; i-- {
 		tag := tagStack[i]
 		// Close everything from the regular tag stack
-		fmt.Fprintf(newOutput, "</%s>", tag)
+		fmt.Fprint(newOutput, "</", tag, ">")
 	}
 }
 
@@ -275,7 +291,7 @@ func filterTruncateHTMLHelper(value string, newOutput *bytes.Buffer, cond func()
 func filterTruncatechars(in *Value, param *Value) (*Value, error) {
 	s := in.String()
 	newLen := param.Integer()
-	return AsValue(filterTruncatecharsHelper(s, newLen)), nil
+	return checkModified(s, filterTruncatecharsHelper(s, newLen), in)
 }
 
 // filterTruncatecharsHTML truncates a string if it is longer than the specified number
@@ -330,7 +346,7 @@ func filterTruncatewords(in *Value, param *Value) (*Value, error) {
 	words := strings.Fields(in.String())
 	n := param.Integer()
 	if n <= 0 {
-		return AsValue(""), nil
+		return emptyStringValue, nil
 	}
 	nlen := min(len(words), n)
 	out := make([]string, 0, nlen)
@@ -420,7 +436,8 @@ func filterTruncatewordsHTML(in *Value, param *Value) (*Value, error) {
 //
 // Output: "&lt;script&gt;alert(&#39;XSS&#39;)&lt;/script&gt;"
 func filterEscape(in *Value, param *Value) (*Value, error) {
-	return AsValue(htmlEscapeReplacer.Replace(in.String())), nil
+	s := in.String()
+	return checkModified(s, htmlEscapeReplacer.Replace(s), in)
 }
 
 // filterSafe marks a string as safe, meaning it will not be HTML-escaped when
@@ -531,7 +548,7 @@ func filterEscapejs(in *Value, param *Value) (*Value, error) {
 		idx += size
 	}
 
-	return AsValue(b.String()), nil
+	return checkModified(sin, b.String(), in)
 }
 
 // filterAdd adds the argument to the value. Works with numbers (integers and floats)
@@ -561,7 +578,11 @@ func filterAdd(in *Value, param *Value) (*Value, error) {
 	}
 	// If in/param is not a number, we're relying on the
 	// Value's String() conversion and just add them both together
-	return AsValue(in.String() + param.String()), nil
+	p := param.String()
+	if p == "" {
+		return in, nil
+	}
+	return AsValue(in.String() + p), nil
 }
 
 // filterAddslashes adds backslashes before quotes and backslashes.
@@ -573,7 +594,8 @@ func filterAdd(in *Value, param *Value) (*Value, error) {
 //
 // Output: "I\'m using \"pongo2\""
 func filterAddslashes(in *Value, param *Value) (*Value, error) {
-	return AsValue(addslashesReplacer.Replace(in.String())), nil
+	s := in.String()
+	return checkModified(s, addslashesReplacer.Replace(s), in)
 }
 
 // filterCut removes all occurrences of the argument from the string.
@@ -588,7 +610,8 @@ func filterAddslashes(in *Value, param *Value) (*Value, error) {
 //
 // Output: "Stringwithspaces"
 func filterCut(in *Value, param *Value) (*Value, error) {
-	return AsValue(strings.ReplaceAll(in.String(), param.String(), "")), nil
+	s := in.String()
+	return checkModified(s, strings.ReplaceAll(s, param.String(), ""), in)
 }
 
 // filterLength returns the length of the value. Works with strings (character count),
@@ -661,6 +684,8 @@ func filterDefaultIfNone(in *Value, param *Value) (*Value, error) {
 	return in, nil
 }
 
+var falseValue = AsValue(false)
+
 // filterDivisibleby returns true if the value is divisible by the argument.
 // Returns false if the argument is 0 (to avoid division by zero).
 //
@@ -673,7 +698,7 @@ func filterDefaultIfNone(in *Value, param *Value) (*Value, error) {
 //	{% if forloop.Counter|divisibleby:2 %}even{% else %}odd{% endif %}
 func filterDivisibleby(in *Value, param *Value) (*Value, error) {
 	if param.Integer() == 0 {
-		return AsValue(false), nil
+		return falseValue, nil
 	}
 	return AsValue(in.Integer()%param.Integer() == 0), nil
 }
@@ -696,7 +721,7 @@ func filterFirst(in *Value, param *Value) (*Value, error) {
 	if in.CanSlice() && in.Len() > 0 {
 		return in.Index(0), nil
 	}
-	return AsValue(""), nil
+	return emptyStringValue, nil
 }
 
 const maxFloatFormatDecimals = 1000
@@ -810,7 +835,7 @@ func filterIriencode(in *Value, param *Value) (*Value, error) {
 		}
 	}
 
-	return AsValue(b.String()), nil
+	return checkModified(sin, b.String(), in)
 }
 
 // filterJoin joins a list with the given separator string. For strings, each
@@ -834,25 +859,35 @@ func filterJoin(in *Value, param *Value) (*Value, error) {
 	sep := param.String()
 	if sep == "" {
 		// An empty string separator returns the input string.
-		return AsValue(in.String()), nil
+		return in, nil
 	}
 
-	sl := make([]string, 0, in.Len())
+	b := strings.Builder{}
 
 	// This is an optimization for very long strings. Index() splits `in` into runes with each
 	// function invocation which hurts performance. Hence we're doing it just once (with ranging
 	// over the string) and speeding things up.
 	if in.IsString() {
-		for _, i := range in.String() {
-			sl = append(sl, string(i))
+		s := in.String()
+		b.Grow(len(s)*3/2 + len(s)*len(sep))
+		for i, r := range in.String() {
+			if i > 0 {
+				b.WriteString(sep)
+			}
+			b.WriteRune(r)
 		}
 	} else {
+		inLen := in.Len()
+		b.Grow(inLen * 64)
 		for i := 0; i < in.Len(); i++ {
-			sl = append(sl, in.Index(i).String())
+			if i > 0 {
+				b.WriteString(sep)
+			}
+			b.WriteString(in.Index(i).String())
 		}
 	}
 
-	return AsValue(strings.Join(sl, sep)), nil
+	return AsValue(b.String()), nil
 }
 
 // filterLast returns the last element of a slice/array or the last character
@@ -873,7 +908,7 @@ func filterLast(in *Value, param *Value) (*Value, error) {
 	if in.CanSlice() && in.Len() > 0 {
 		return in.Index(in.Len() - 1), nil
 	}
-	return AsValue(""), nil
+	return emptyStringValue, nil
 }
 
 // filterUpper converts a string to uppercase.
@@ -884,7 +919,8 @@ func filterLast(in *Value, param *Value) (*Value, error) {
 //
 // Output: "HELLO WORLD"
 func filterUpper(in *Value, param *Value) (*Value, error) {
-	return AsValue(strings.ToUpper(in.String())), nil
+	s := in.String()
+	return checkModified(s, strings.ToUpper(s), in)
 }
 
 // filterLower converts a string to lowercase.
@@ -895,7 +931,8 @@ func filterUpper(in *Value, param *Value) (*Value, error) {
 //
 // Output: "hello world"
 func filterLower(in *Value, param *Value) (*Value, error) {
-	return AsValue(strings.ToLower(in.String())), nil
+	s := in.String()
+	return checkModified(s, strings.ToLower(s), in)
 }
 
 // filterMakelist converts a string into a list of individual characters.
@@ -933,11 +970,11 @@ func filterMakelist(in *Value, param *Value) (*Value, error) {
 // Output: "HELLO"
 func filterCapfirst(in *Value, param *Value) (*Value, error) {
 	if in.Len() <= 0 {
-		return AsValue(""), nil
+		return emptyStringValue, nil
 	}
 	t := in.String()
 	r, size := utf8.DecodeRuneInString(t)
-	return AsValue(strings.ToUpper(string(r)) + t[size:]), nil
+	return checkModified(t, strings.ToUpper(string(r))+t[size:], in)
 }
 
 const maxCharPadding = 10000
@@ -973,7 +1010,7 @@ func filterCenter(in *Value, param *Value) (*Value, error) {
 	left := spaces/2 + spaces%2
 	right := spaces / 2
 
-	return AsValue(fmt.Sprintf("%s%s%s", strings.Repeat(" ", left),
+	return AsValue(fmt.Sprint(strings.Repeat(" ", left),
 		in.String(), strings.Repeat(" ", right))), nil
 }
 
@@ -1056,11 +1093,14 @@ func filterLinebreaks(in *Value, param *Value) (*Value, error) {
 		return in, nil
 	}
 
+	s := in.String()
+
 	var b bytes.Buffer
+	b.Grow(len(s) * 10 / 9)
 
 	// Newline = <br />
 	// Double newline = <p>...</p>
-	lines := strings.Split(in.String(), "\n")
+	lines := strings.Split(s, "\n")
 	lenlines := len(lines)
 
 	opened := false
@@ -1121,7 +1161,8 @@ func filterSplit(in *Value, param *Value) (*Value, error) {
 //
 // Output: "First line<br />Second line<br />Third line"
 func filterLinebreaksbr(in *Value, param *Value) (*Value, error) {
-	return AsValue(strings.ReplaceAll(in.String(), "\n", "<br />")), nil
+	s := in.String()
+	return checkModified(s, strings.ReplaceAll(s, "\n", "<br />"), in)
 }
 
 // filterLinenumbers prepends line numbers to each line in the text.
@@ -1137,12 +1178,18 @@ func filterLinebreaksbr(in *Value, param *Value) (*Value, error) {
 //  2. second
 //  3. third
 func filterLinenumbers(in *Value, param *Value) (*Value, error) {
-	lines := strings.Split(in.String(), "\n")
-	output := make([]string, 0, len(lines))
+	s := in.String()
+	lines := strings.Split(s, "\n")
+	b := make([]byte, 0, len(s)+len(lines)*6) // 6 = len("nnnn. ")
 	for idx, line := range lines {
-		output = append(output, fmt.Sprintf("%d. %s", idx+1, line))
+		if idx > 0 {
+			b = append(b, '\n')
+		}
+		b = strconv.AppendInt(b, int64(idx+1), 10)
+		b = append(b, ". "...)
+		b = append(b, line...)
 	}
-	return AsValue(strings.Join(output, "\n")), nil
+	return AsValue(string(b)), nil
 }
 
 // filterLjust left-aligns the value in a field of a given width by padding
@@ -1156,13 +1203,16 @@ func filterLinenumbers(in *Value, param *Value) (*Value, error) {
 // Output: "[hello     ]"
 func filterLjust(in *Value, param *Value) (*Value, error) {
 	times := max(param.Integer()-in.Len(), 0)
+	if times == 0 {
+		return in, nil
+	}
 	if times > maxCharPadding {
 		return nil, &Error{
 			Sender:    "filter:ljust",
 			OrigError: fmt.Errorf("ljust doesn't support more padding than %c chars", maxCharPadding),
 		}
 	}
-	return AsValue(fmt.Sprintf("%s%s", in.String(), strings.Repeat(" ", times))), nil
+	return AsValue(in.String() + strings.Repeat(" ", times)), nil
 }
 
 // filterUrlencode encodes a string for safe use in a URL query string.
@@ -1213,7 +1263,7 @@ func filterUrlizeHelper(input string, autoescape bool, trunc int) (string, error
 		url := t.String()
 
 		if !strings.HasPrefix(url, "http") {
-			url = fmt.Sprintf("http://%s", url)
+			url = "http://" + url
 		}
 
 		title := raw_url
@@ -1351,14 +1401,16 @@ func filterStriptags(in *Value, param *Value) (*Value, error) {
 	s := in.String()
 
 	// Remove null bytes which could be used to bypass filters
-	s = strings.ReplaceAll(s, "\x00", "")
+	if strings.IndexByte(s, 0) != -1 { // don't reallocate if no nulls exist
+		s = strings.ReplaceAll(s, "\x00", "")
+	}
 
 	result, err := stripTagsIteratively(s, []*regexp.Regexp{reStriptags}, 50, "filter:striptags")
 	if err != nil {
 		return nil, err
 	}
 
-	return AsValue(result), nil
+	return checkModified(s, result, in)
 }
 
 // https://en.wikipedia.org/wiki/Phoneword
@@ -1389,6 +1441,8 @@ func filterPhone2numeric(in *Value, param *Value) (*Value, error) {
 	}
 	return AsValue(sin), nil
 }
+
+var sValue = AsValue("s")
 
 // filterPluralize returns a plural suffix based on the numeric value.
 // By default, returns "s" if the value is not 1, otherwise returns "".
@@ -1436,11 +1490,11 @@ func filterPluralize(in *Value, param *Value) (*Value, error) {
 		} else {
 			if in.Integer() != 1 {
 				// return default 's'
-				return AsValue("s"), nil
+				return sValue, nil
 			}
 		}
 
-		return AsValue(""), nil
+		return emptyStringValue, nil
 	}
 	return nil, &Error{
 		Sender:    "filter:pluralize",
@@ -1527,7 +1581,7 @@ func filterRemovetags(in *Value, param *Value) (*Value, error) {
 		return nil, err
 	}
 
-	return AsValue(result), nil
+	return checkModified(s, result, in)
 }
 
 // filterRjust right-aligns the value in a field of a given width by padding
@@ -1543,14 +1597,17 @@ func filterRemovetags(in *Value, param *Value) (*Value, error) {
 //
 // Output: "   42"
 func filterRjust(in *Value, param *Value) (*Value, error) {
-	padding := param.Integer()
-	if padding > maxCharPadding {
+	times := max(param.Integer()-in.Len(), 0)
+	if times == 0 {
+		return in, nil
+	}
+	if times > maxCharPadding {
 		return nil, &Error{
-			Sender:    "filter:rjust",
-			OrigError: fmt.Errorf("rjust doesn't support more padding than %c chars", maxCharPadding),
+			Sender:    "filter:ljust",
+			OrigError: fmt.Errorf("ljust doesn't support more padding than %c chars", maxCharPadding),
 		}
 	}
-	return AsValue(fmt.Sprintf(fmt.Sprintf("%%%ds", padding), in.String())), nil
+	return AsValue(strings.Repeat(" ", times) + in.String()), nil
 }
 
 // filterSlice returns a slice of a list using the "from:to" syntax (Python-style).
@@ -1625,6 +1682,10 @@ func filterSlice(in *Value, param *Value) (*Value, error) {
 		to = vto
 	} // otherwise, the slice remains [x, len]
 
+	if from == 0 && to >= in.Len() {
+		return in, nil
+	}
+
 	return in.Slice(from, to), nil
 }
 
@@ -1642,10 +1703,11 @@ func filterSlice(in *Value, param *Value) (*Value, error) {
 // Output: "Hello World"
 func filterTitle(in *Value, param *Value) (*Value, error) {
 	if !in.IsString() {
-		return AsValue(""), nil
+		return emptyStringValue, nil
 	}
 	caser := cases.Title(language.English)
-	return AsValue(caser.String(strings.ToLower(in.String()))), nil
+	s := in.String()
+	return checkModified(s, caser.String(strings.ToLower(s)), in)
 }
 
 // filterWordcount returns the number of words in the string.
@@ -1684,7 +1746,8 @@ func filterWordcount(in *Value, param *Value) (*Value, error) {
 //	c d
 //	e
 func filterWordwrap(in *Value, param *Value) (*Value, error) {
-	words := strings.Fields(in.String())
+	s := in.String()
+	words := strings.Fields(s)
 	wordsLen := len(words)
 	wrapAt := param.Integer()
 	if wrapAt <= 0 {
@@ -1695,11 +1758,20 @@ func filterWordwrap(in *Value, param *Value) (*Value, error) {
 	if wordsLen%wrapAt > 0 {
 		linecount++
 	}
-	lines := make([]string, 0, linecount)
+	b := strings.Builder{}
+	b.Grow(in.Len() * 10 / 9)
 	for i := 0; i < linecount; i++ {
-		lines = append(lines, strings.Join(words[wrapAt*i:min(wrapAt*(i+1), wordsLen)], " "))
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		for j, word := range words[wrapAt*i : min(wrapAt*(i+1), wordsLen)] {
+			if j > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteString(word)
+		}
 	}
-	return AsValue(strings.Join(lines, "\n")), nil
+	return checkModified(s, b.String(), in)
 }
 
 // filterYesno maps true, false, and nil values to customizable strings.
@@ -1777,7 +1849,7 @@ func filterYesno(in *Value, param *Value) (*Value, error) {
 func timeFilterHelper(in *Value, param *Value, reverse bool) (*Value, error) {
 	t, isTime := in.Interface().(time.Time)
 	if !isTime {
-		return AsValue(""), nil
+		return emptyStringValue, nil
 	}
 
 	comparisonTime := time.Now()
@@ -1826,74 +1898,102 @@ func timeDiff(from, to time.Time) string {
 		return "0 minutes"
 	}
 
-	years := int(diff / (365 * 24 * time.Hour))
+	years := int64(diff / (365 * 24 * time.Hour))
 	diff -= time.Duration(years) * 365 * 24 * time.Hour
 
-	months := int(diff / (30 * 24 * time.Hour))
+	months := int64(diff / (30 * 24 * time.Hour))
 	diff -= time.Duration(months) * 30 * 24 * time.Hour
 
-	weeks := int(diff / (7 * 24 * time.Hour))
+	weeks := int64(diff / (7 * 24 * time.Hour))
 	diff -= time.Duration(weeks) * 7 * 24 * time.Hour
 
-	days := int(diff / (24 * time.Hour))
+	days := int64(diff / (24 * time.Hour))
 	diff -= time.Duration(days) * 24 * time.Hour
 
-	hours := int(diff / time.Hour)
+	hours := int64(diff / time.Hour)
 	diff -= time.Duration(hours) * time.Hour
 
-	minutes := int(diff / time.Minute)
+	minutes := int64(diff / time.Minute)
 
 	// Build the result with up to two units (like Django)
-	var parts []string
+	b := make([]byte, 0, 32)
+	parts := 0
 
 	if years > 0 {
 		if years == 1 {
-			parts = append(parts, "1 year")
+			b = append(b, "1 year"...)
 		} else {
-			parts = append(parts, fmt.Sprintf("%d years", years))
+			b = strconv.AppendInt(b, years, 10)
+			b = append(b, " years"...)
 		}
+		parts++
 	}
-	if months > 0 && len(parts) < 2 {
+	if months > 0 && parts < 2 {
+		if parts > 0 {
+			b = append(b, ", "...)
+		}
 		if months == 1 {
-			parts = append(parts, "1 month")
+			b = append(b, "1 month"...)
 		} else {
-			parts = append(parts, fmt.Sprintf("%d months", months))
+			b = strconv.AppendInt(b, months, 10)
+			b = append(b, " months"...)
 		}
+		parts++
 	}
-	if weeks > 0 && len(parts) < 2 {
+	if weeks > 0 && parts < 2 {
+		if parts > 0 {
+			b = append(b, ", "...)
+		}
 		if weeks == 1 {
-			parts = append(parts, "1 week")
+			b = append(b, "1 week"...)
 		} else {
-			parts = append(parts, fmt.Sprintf("%d weeks", weeks))
+			b = strconv.AppendInt(b, weeks, 10)
+			b = append(b, " weeks"...)
 		}
+		parts++
 	}
-	if days > 0 && len(parts) < 2 {
+	if days > 0 && parts < 2 {
+		if parts > 0 {
+			b = append(b, ", "...)
+		}
 		if days == 1 {
-			parts = append(parts, "1 day")
+			b = append(b, "1 day"...)
 		} else {
-			parts = append(parts, fmt.Sprintf("%d days", days))
+			b = strconv.AppendInt(b, days, 10)
+			b = append(b, " days"...)
 		}
+		parts++
 	}
-	if hours > 0 && len(parts) < 2 {
+	if hours > 0 && parts < 2 {
+		if parts > 0 {
+			b = append(b, ", "...)
+		}
 		if hours == 1 {
-			parts = append(parts, "1 hour")
+			b = append(b, "1 hour"...)
 		} else {
-			parts = append(parts, fmt.Sprintf("%d hours", hours))
+			b = strconv.AppendInt(b, hours, 10)
+			b = append(b, " hours"...)
 		}
+		parts++
 	}
-	if minutes > 0 && len(parts) < 2 {
-		if minutes == 1 {
-			parts = append(parts, "1 minute")
-		} else {
-			parts = append(parts, fmt.Sprintf("%d minutes", minutes))
+	if minutes > 0 && parts < 2 {
+		if parts > 0 {
+			b = append(b, ", "...)
 		}
+		if minutes == 1 {
+			b = append(b, "1 minute"...)
+		} else {
+			b = strconv.AppendInt(b, minutes, 10)
+			b = append(b, " minutes"...)
+		}
+		parts++
 	}
 
-	if len(parts) == 0 {
+	if parts == 0 {
 		return "0 minutes"
 	}
 
-	return strings.Join(parts, ", ")
+	return string(b)
 }
 
 // filterDictsort sorts a list of maps or structs by the specified key.
@@ -2052,24 +2152,33 @@ func unorderedListHelper(result *strings.Builder, in *Value, depth int) {
 // Output: "hello-world"
 func filterSlugify(in *Value, param *Value) (*Value, error) {
 	s := in.String()
-	s = strings.ToLower(s)
 
-	// Replace spaces with hyphens
-	s = strings.ReplaceAll(s, " ", "-")
+	b := strings.Builder{}
 
-	// Remove non-alphanumeric characters (except hyphens)
-	var result strings.Builder
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			result.WriteRune(r)
+	// it'll likely be much shorter than this, but it's much faster to overallocate than to underallocate
+	b.Grow(len(s))
+
+	var prev rune
+	for i, r := range s {
+		switch {
+		// convert spaces to hyphens
+		case r == ' ' || r == '-':
+			if prev != '-' && i > 0 { // don't start with a hypen and don't output double-hyphens
+				b.WriteRune('-')
+				prev = '-'
+			}
+
+		case r >= 'A' && r <= 'Z':
+			r = unicode.ToLower(r)
+			b.WriteRune(r)
+			prev = r
+
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			prev = r
 		}
 	}
-	s = result.String()
-
-	// Remove consecutive hyphens
-	for strings.Contains(s, "--") {
-		s = strings.ReplaceAll(s, "--", "-")
-	}
+	s = b.String()
 
 	// Trim leading and trailing hyphens
 	s = strings.Trim(s, "-")
@@ -2172,23 +2281,28 @@ func filterEscapeseq(in *Value, param *Value) (*Value, error) {
 //	<script id="my-data" type="application/json">{"key": "value"}</script>
 //	<script type="application/json">{"key": "value"}</script>
 func filterJSONScript(in *Value, param *Value) (*Value, error) {
-	var result strings.Builder
-
-	// element_id is optional (Django 4.1+)
-	if param == nil || param.IsNil() || param.String() == "" {
-		result.WriteString(`<script type="application/json">`)
-	} else {
-		elementID := strings.ReplaceAll(param.String(), `"`, `&quot;`)
-		fmt.Fprintf(&result, `<script id="%s" type="application/json">`, elementID)
-	}
-
 	// Convert the value to JSON (json.Marshal doesn't add trailing newline)
 	jsonBytes, err := json.Marshal(in.Interface())
 	if err != nil {
 		return nil, fmt.Errorf("json marshalling error: %w", err)
 	}
-	result.Write(jsonBytes)
 
+	var result strings.Builder
+
+	// element_id is optional (Django 4.1+)
+	if param == nil || param.IsNil() || param.String() == "" {
+		result.Grow(len(`<script type="application/json">`) + len(jsonBytes) + len("</script>"))
+		result.WriteString(`<script type="application/json">`)
+	} else {
+		elementID := param.String()
+		if strings.IndexByte(elementID, '"') != -1 {
+			elementID = strings.ReplaceAll(param.String(), `"`, `&quot;`)
+		}
+		result.Grow(len(`<script id="%s" type="application/json">`) + len(elementID) + len(jsonBytes) + len("</script>"))
+		fmt.Fprintf(&result, `<script id="%s" type="application/json">`, elementID)
+	}
+
+	result.Write(jsonBytes)
 	result.WriteString("</script>")
 	return AsSafeValue(result.String()), nil
 }

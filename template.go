@@ -216,12 +216,24 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 		parent = parent.parent
 	}
 
-	// Create context if none is given
-	newContext := make(Context)
-	newContext.Update(tpl.set.Globals)
+	// Create context if none is given, but avoid unnecessary copying if either of tpl.set.Globals or context is nil
+	var newContext Context
+
+	if len(tpl.set.Globals) > 0 {
+		if context == nil {
+			newContext = tpl.set.Globals
+		} else {
+			newContext = make(Context, len(tpl.set.Globals)+len(context))
+			newContext.Update(tpl.set.Globals)
+		}
+	}
 
 	if context != nil {
-		newContext.Update(context)
+		if newContext == nil {
+			newContext = context
+		} else {
+			newContext.Update(context)
+		}
 
 		if len(newContext) > 0 {
 			// Check for context name syntax
@@ -242,6 +254,10 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 				}
 			}
 		}
+	}
+
+	if newContext == nil {
+		newContext = make(Context)
 	}
 
 	// Create operational context
@@ -267,6 +283,7 @@ func (tpl *Template) Evaluate(context Context) (interface{}, error) {
 	}
 
 	w := strings.Builder{}
+	w.Grow(tpl.size * 2)
 
 	var r MultiPart
 	multinode := len(parent.root.Nodes) > 1

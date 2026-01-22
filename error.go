@@ -2,9 +2,10 @@ package pongo2
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 )
 
 // The Error type is being used to address an error during lexing, parsing or
@@ -60,22 +61,35 @@ func (e *Error) Unwrap() error {
 
 // Returns a nice formatted error string.
 func (e *Error) Error() string {
-	s := "[Error"
+	b := strings.Builder{}
+
+	msg := e.OrigError.Error()
+	size := 64 + len(e.Sender) + len(e.Filename) + len(msg)
+	if e.Token != nil {
+		size += len(e.Token.Val)
+	}
+	b.Grow(size)
+	b.WriteString("[Error")
 	if e.Sender != "" {
-		s += " (where: " + e.Sender + ")"
+		b.WriteString(" (where: " + e.Sender + ")")
 	}
 	if e.Filename != "" {
-		s += " in " + e.Filename
+		b.WriteString(" in " + e.Filename)
 	}
 	if e.Line > 0 {
-		s += fmt.Sprintf(" | Line %d Col %d", e.Line, e.Column)
+		b.WriteString(" | Line ")
+		b.WriteString(strconv.Itoa(e.Line))
+		b.WriteString(" Col ")
+		b.WriteString(strconv.Itoa(e.Column))
 		if e.Token != nil {
-			s += fmt.Sprintf(" near '%s'", e.Token.Val)
+			b.WriteString(" near '")
+			b.WriteString(e.Token.Val)
+			b.WriteByte('\'')
 		}
 	}
-	s += "] "
-	s += e.OrigError.Error()
-	return s
+	b.WriteString("] ")
+	b.WriteString(msg)
+	return b.String()
 }
 
 // RawLine returns the affected line from the original template, if available.
