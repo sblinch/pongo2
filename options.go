@@ -30,6 +30,9 @@ type Options struct {
 
 	// Assigns a translation function to be used for the translate tag.
 	Translator TranslateFunc
+
+	// Allows translation of strings using {% "foo" %} as shorthand for {% translate "foo" %}.
+	EnableTranslatorShorthand bool
 }
 
 func newOptions() *Options {

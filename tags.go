@@ -88,7 +88,11 @@ func (p *Parser) parseTagElement() (INodeTag, error) {
 
 	// Check for identifier
 	if tokenName == nil {
-		return nil, p.Error("Tag name must be an identifier.", nil)
+		if p.template.set.Options.EnableTranslatorShorthand && p.PeekType(TokenString) != nil {
+			tokenName = &Token{Val: "translate"} // allow {% "translate me" %} as shorthand for {% translate "translate me" %}
+		} else {
+			return nil, p.Error("Tag name must be an identifier.", nil)
+		}
 	}
 
 	// Check sandbox tag restriction
