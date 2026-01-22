@@ -186,6 +186,26 @@ func (nv *nodeVariable) FilterApplied(name string) bool {
 	return nv.expr.FilterApplied(name)
 }
 
+func (nv *nodeVariable) Evaluate(ctx *ExecutionContext) (*Value, error) {
+	value, err := nv.expr.Evaluate(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !nv.expr.FilterApplied("safe") && !value.safe && value.IsString() && ctx.Autoescape {
+		// apply escape filter
+		escapeFn := ctx.template.set.filters[ctx.template.Options.AutoescapeFilter]
+		if escapeFn != nil {
+			value, err = escapeFn(value, nil)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return value, nil
+}
+
 func (nv *nodeVariable) Execute(ctx *ExecutionContext, writer TemplateWriter) error {
 	value, err := nv.expr.Evaluate(ctx)
 	if err != nil {
