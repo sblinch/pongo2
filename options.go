@@ -14,6 +14,10 @@ type Options struct {
 	// Sets the name of the filter used to escape values. Defaults to "escape",
 	// which escapes HTML sequences.
 	AutoescapeFilter string
+
+	// If this is set to true, variables that resolve to *Template or string values containing template tags are
+	// further resolved.
+	DeepResolve bool
 }
 
 func newOptions() *Options {
@@ -21,6 +25,7 @@ func newOptions() *Options {
 		TrimBlocks:       false,
 		LStripBlocks:     false,
 		AutoescapeFilter: "escape",
+		DeepResolve:      false,
 	}
 }
 
@@ -29,6 +34,7 @@ func (opt *Options) Update(other *Options) *Options {
 	opt.TrimBlocks = other.TrimBlocks
 	opt.LStripBlocks = other.LStripBlocks
 	opt.AutoescapeFilter = other.AutoescapeFilter
+	opt.DeepResolve = other.DeepResolve
 
 	return opt
 }

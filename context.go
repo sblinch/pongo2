@@ -77,6 +77,10 @@ type ExecutionContext struct {
 	// The |safe filter bypasses escaping.
 	Autoescape bool
 
+	// If this is set to true, variables that resolve to *Template or string values
+	// containing template tags are further resolved.
+	DeepResolve bool
+
 	// User-provided data from Execute(). Treat as READ-ONLY to avoid side effects.
 	Public Context
 
@@ -103,9 +107,10 @@ func newExecutionContext(tpl *Template, ctx Context) *ExecutionContext {
 	return &ExecutionContext{
 		template: tpl,
 
-		Public:     ctx,
-		Private:    privateCtx,
-		Autoescape: tpl.set.autoescape,
+		Public:      ctx,
+		Private:     privateCtx,
+		Autoescape:  tpl.set.autoescape,
+		DeepResolve: tpl.Options.DeepResolve,
 	}
 }
 
@@ -118,9 +123,10 @@ func NewChildExecutionContext(parent *ExecutionContext) *ExecutionContext {
 	newctx := &ExecutionContext{
 		template: parent.template,
 
-		Public:     parent.Public,
-		Private:    make(Context),
-		Autoescape: parent.Autoescape,
+		Public:      parent.Public,
+		Private:     make(Context),
+		Autoescape:  parent.Autoescape,
+		DeepResolve: parent.DeepResolve,
 	}
 	newctx.Shared = parent.Shared
 
