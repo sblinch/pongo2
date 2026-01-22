@@ -10,12 +10,17 @@ type Options struct {
 	// If this is set to true leading spaces and tabs are stripped from the
 	// start of a line to a block. Defaults to false
 	LStripBlocks bool
+
+	// Sets the name of the filter used to escape values. Defaults to "escape",
+	// which escapes HTML sequences.
+	AutoescapeFilter string
 }
 
 func newOptions() *Options {
 	return &Options{
-		TrimBlocks:   false,
-		LStripBlocks: false,
+		TrimBlocks:       false,
+		LStripBlocks:     false,
+		AutoescapeFilter: "escape",
 	}
 }
 
@@ -23,6 +28,7 @@ func newOptions() *Options {
 func (opt *Options) Update(other *Options) *Options {
 	opt.TrimBlocks = other.TrimBlocks
 	opt.LStripBlocks = other.LStripBlocks
+	opt.AutoescapeFilter = other.AutoescapeFilter
 
 	return opt
 }

@@ -194,7 +194,7 @@ func (nv *nodeVariable) Execute(ctx *ExecutionContext, writer TemplateWriter) er
 
 	if !nv.expr.FilterApplied("safe") && !value.safe && value.IsString() && ctx.Autoescape {
 		// apply escape filter
-		escapeFn := ctx.template.set.filters["escape"]
+		escapeFn := ctx.template.set.filters[ctx.template.Options.AutoescapeFilter]
 		if escapeFn != nil {
 			value, err = escapeFn(value, nil)
 			if err != nil {
