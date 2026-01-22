@@ -250,6 +250,50 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 	return parent, ctx, nil
 }
 
+type IEvaluate interface {
+	Evaluate(ctx *ExecutionContext) (*Value, error)
+}
+
+func (tpl *Template) Evaluate(context Context) (interface{}, bool, error) {
+	parent, ctx, err := tpl.newContextForExecution(context)
+	if err != nil {
+		return nil, false, err
+	}
+
+	w := strings.Builder{}
+
+	var r []interface{}
+	multinode := len(parent.root.Nodes) > 1
+	if multinode {
+		r = make([]interface{}, 0, len(parent.root.Nodes))
+	}
+	for _, n := range parent.root.Nodes {
+		if e, ok := n.(IEvaluate); ok {
+			v, err := e.Evaluate(ctx)
+			if err != nil {
+				return nil, false, err
+			}
+			if multinode {
+				r = append(r, v.Interface())
+			} else {
+				return v.Interface(), false, nil
+			}
+		} else {
+			if err := n.Execute(ctx, &w); err != nil {
+				return nil, false, err
+			}
+			if multinode {
+				r = append(r, w.String())
+				w.Reset()
+			} else {
+				return w.String(), false, nil
+			}
+		}
+	}
+
+	return r, multinode, nil
+}
+
 // execute is the internal execution method that renders the template to a TemplateWriter.
 // It prepares the execution context and runs the root document node's Execute method.
 // This is the core execution path used by all public Execute* methods.
