@@ -636,7 +636,8 @@ func (l *lexer) stateString() lexerStateFn {
 			case '"', '\'', '\\', 'n', 't', 'r':
 				l.next()
 			default:
-				return l.errorf("Unknown escape sequence: \\%c", l.peek())
+				// output unmodified
+				// return l.errorf("Unknown escape sequence: \\%c", l.peek())
 			}
 		case EOF:
 			return l.errorf("Unexpected EOF, string not closed.")
