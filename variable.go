@@ -289,6 +289,14 @@ func (vr *variableResolver) resolve(ctx *ExecutionContext) (*Value, error) {
 
 		// Handle function call
 		if part.isFunctionCall || current.Kind() == reflect.Func {
+			permitted := !ctx.DisableContextFunctions
+			if idx > 0 {
+				permitted = !ctx.DisableNestedFunctions
+			}
+			if !permitted {
+				return nil, errors.New("function invocation support is disabled")
+			}
+
 			result, err := vr.handleFunctionCall(ctx, current, part)
 			if err != nil {
 				return nil, err

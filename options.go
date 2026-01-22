@@ -18,14 +18,22 @@ type Options struct {
 	// If this is set to true, variables that resolve to *Template or string values containing template tags are
 	// further resolved.
 	DeepResolve bool
+
+	// If this is set to true, functions directly assigned as context variables cannot be called.
+	DisableContextFunctions bool
+
+	// If this is set to true, functions within context variables (such as struct member functions) cannot be called.
+	DisableNestedFunctions bool
 }
 
 func newOptions() *Options {
 	return &Options{
-		TrimBlocks:       false,
-		LStripBlocks:     false,
-		AutoescapeFilter: "escape",
-		DeepResolve:      false,
+		TrimBlocks:              false,
+		LStripBlocks:            false,
+		AutoescapeFilter:        "escape",
+		DeepResolve:             false,
+		DisableContextFunctions: false,
+		DisableNestedFunctions:  false,
 	}
 }
 
@@ -35,6 +43,8 @@ func (opt *Options) Update(other *Options) *Options {
 	opt.LStripBlocks = other.LStripBlocks
 	opt.AutoescapeFilter = other.AutoescapeFilter
 	opt.DeepResolve = other.DeepResolve
+	opt.DisableContextFunctions = other.DisableContextFunctions
+	opt.DisableNestedFunctions = other.DisableNestedFunctions
 
 	return opt
 }
