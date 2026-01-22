@@ -8,7 +8,17 @@ import (
 // FilterFunction is the type filter functions must fulfil
 type FilterFunction func(in *Value, param *Value) (out *Value, err error)
 
+// FilterArgsFunction is the type filter functions supporting arguments must fulfil
+type FilterArgsFunction func(in *Value, args *Args) (out *Value, err error)
+
 var builtinFilters = make(map[string]FilterFunction)
+var builtinFilterArgs = make(map[string]FilterArgsFunction)
+
+func wrapFilterFunc(fn FilterFunction) FilterArgsFunction {
+	return func(in *Value, args *Args) (out *Value, err error) {
+		return fn(in, args.First())
+	}
+}
 
 // copyFilters creates a shallow copy of a filter map.
 func copyFilters(src map[string]FilterFunction) map[string]FilterFunction {
@@ -17,10 +27,20 @@ func copyFilters(src map[string]FilterFunction) map[string]FilterFunction {
 	return dst
 }
 
+// copyFilterArgs creates a shallow copy of a filterArgs map.
+func copyFilterArgs(src map[string]FilterArgsFunction) map[string]FilterArgsFunction {
+	dst := make(map[string]FilterArgsFunction, len(src))
+	maps.Copy(dst, src)
+	return dst
+}
+
 // BuiltinFilterExists returns true if the given filter is a built-in filter.
 // Use TemplateSet.FilterExists to check filters in a specific template set.
 func BuiltinFilterExists(name string) bool {
 	_, existing := builtinFilters[name]
+	if !existing {
+		_, existing = builtinFilterArgs[name]
+	}
 	return existing
 }
 
@@ -41,6 +61,29 @@ func registerFilterBuiltin(name string, fn FilterFunction) error {
 	return nil
 }
 
+// registerFilterArgsBuiltin registers a new filter with args to the global filter map.
+// This is used during package initialization to register builtin filters.
+func registerFilterArgsBuiltin(name string, fn FilterArgsFunction) error {
+	if _, exists := builtinFilterArgs[name]; exists {
+		return fmt.Errorf("filter with name '%s' is already registered", name)
+	}
+	delete(builtinFilters, name)
+	builtinFilterArgs[name] = fn
+	return nil
+}
+
+func AliasBuiltinFilter(name, alias string) error {
+	if !BuiltinFilterExists(name) {
+		return fmt.Errorf("filter with name '%s' does not exist (therefore cannot be aliased)", name)
+	}
+	if _, exists := builtinFilters[name]; exists {
+		builtinFilters[alias] = builtinFilters[name]
+	} else {
+		builtinFilterArgs[alias] = builtinFilterArgs[name]
+	}
+	return nil
+}
+
 // MustApplyFilter behaves like ApplyFilter, but panics on an error.
 // This function uses builtinFilters. Use TemplateSet.MustApplyFilter for set-specific filters.
 func MustApplyFilter(name string, value *Value, param *Value) *Value {
@@ -57,6 +100,10 @@ func MustApplyFilter(name string, value *Value, param *Value) *Value {
 func ApplyFilter(name string, value *Value, param *Value) (*Value, error) {
 	fn, existing := builtinFilters[name]
 	if !existing {
+		if fan, existing := builtinFilterArgs[name]; existing {
+			return fan(value, NewArgs(nil, nil, param))
+		}
+
 		return nil, &Error{
 			Sender:    "applyfilter",
 			OrigError: fmt.Errorf("filter with name '%s' not found", name),
@@ -71,29 +118,84 @@ func ApplyFilter(name string, value *Value, param *Value) (*Value, error) {
 	return fn(value, param)
 }
 
+// ApplyFilterArgs applies a built-infilter to a given value using the given
+// parameters. Returns a *pongo2.Value or an error. Use TemplateSet.ApplyFilterArgs
+// for set-specific filters.
+func ApplyFilterArgs(name string, value *Value, args *Args) (*Value, error) {
+	fn, existing := builtinFilterArgs[name]
+	if !existing {
+		// try the non-Args filters
+		if f, existing := builtinFilters[name]; existing {
+			if len(args.args)+len(args.kwArgs) < 2 {
+				var param *Value
+				if args.Len() > 0 {
+					param = args.Value(0)
+				} else if len(args.kwArgs) > 0 {
+					for _, v := range args.kwArgs {
+						param = v
+					}
+				}
+				return f(value, param)
+			} else {
+				return nil, &Error{
+					Sender:    "applyfilter",
+					OrigError: ErrArgCount,
+				}
+			}
+		}
+
+		return nil, &Error{
+			Sender:    "applyfilter",
+			OrigError: fmt.Errorf("filter with name '%s' not found", name),
+		}
+	}
+
+	if args == nil {
+		args = NewArgs(nil, nil, nil)
+	}
+
+	return fn(value, args)
+}
+
 type filterCall struct {
 	token *Token
 
-	name      string
-	parameter IEvaluator
+	name string
 
+	parameter  IEvaluator
 	filterFunc FilterFunction
+
+	parameters      []IEvaluator
+	namedParameters map[string]IEvaluator
+	filterArgsFunc  FilterArgsFunction
 }
 
 func (fc *filterCall) Execute(v *Value, ctx *ExecutionContext) (*Value, error) {
-	var param *Value
-	var err error
+	var (
+		filteredValue *Value
+		err           error
+	)
+	if fc.filterFunc != nil {
+		var param *Value
 
-	if fc.parameter != nil {
-		param, err = fc.parameter.Evaluate(ctx)
+		if fc.parameter != nil {
+			param, err = fc.parameter.Evaluate(ctx)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			param = AsValue(nil)
+		}
+
+		filteredValue, err = fc.filterFunc(v, param)
+	} else {
+		var args *Args
+		args, err = evaluateArgs(ctx, fc.parameters, fc.namedParameters)
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		param = AsValue(nil)
+		filteredValue, err = fc.filterArgsFunc(v, args)
 	}
-
-	filteredValue, err := fc.filterFunc(v, param)
 	if err != nil {
 		return nil, updateErrorToken(err, ctx.template, fc.token)
 	}
@@ -121,11 +223,15 @@ func (p *Parser) parseFilter() (*filterCall, error) {
 
 	// Get the appropriate filter function and bind it
 	filterFn, exists := p.template.set.filters[identToken.Val]
-	if !exists {
-		return nil, p.Error(fmt.Sprintf("Filter '%s' does not exist.", identToken.Val), identToken)
+	if exists {
+		filter.filterFunc = filterFn
+	} else {
+		filterArgsFn, exists := p.template.set.filterArgs[identToken.Val]
+		if !exists {
+			return nil, p.Error(fmt.Sprintf("Filter '%s' does not exist.", identToken.Val), identToken)
+		}
+		filter.filterArgsFunc = filterArgsFn
 	}
-
-	filter.filterFunc = filterFn
 
 	// Check for filter-argument (2 tokens needed: ':' ARG)
 	if p.Match(TokenSymbol, ":") != nil {
@@ -138,7 +244,40 @@ func (p *Parser) parseFilter() (*filterCall, error) {
 		if err != nil {
 			return nil, err
 		}
-		filter.parameter = v
+
+		if filter.filterFunc != nil {
+			filter.parameter = v
+		} else {
+			filter.parameters = append(filter.parameters, v)
+		}
+
+	} else if p.Match(TokenSymbol, "(") != nil {
+		var err error
+		filter.parameters, filter.namedParameters, err = p.parseArgs()
+		if err != nil {
+			return nil, err
+		}
+
+		if p.Match(TokenSymbol, ")") == nil {
+			return nil, p.Error("')' expected", nil)
+		}
+
+		if filter.filterArgsFunc == nil {
+			// if this filter was registered with Django (single argument string) syntax, we can only call it if the
+			// template passed less than 2 parameters
+			if len(filter.parameters)+len(filter.namedParameters) > 1 {
+				return nil, p.Error("Too many parameters for this filter call.", nil)
+
+			} else if len(filter.parameters) > 0 {
+				filter.parameter = filter.parameters[0]
+
+			} else {
+				for _, param := range filter.namedParameters {
+					filter.parameter = param
+				}
+			}
+		}
+
 	}
 
 	return filter, nil
