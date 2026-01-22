@@ -87,6 +87,9 @@ type ExecutionContext struct {
 	// If this is set to true, functions within context variables (such as struct member functions) cannot be called.
 	DisableNestedFunctions bool
 
+	// If this is set to true, struct fields, map keys, and variable names will be treated as case-insensitive.
+	IgnoreVariableCase bool
+
 	// User-provided data from Execute(). Treat as READ-ONLY to avoid side effects.
 	Public Context
 
@@ -119,6 +122,7 @@ func newExecutionContext(tpl *Template, ctx Context) *ExecutionContext {
 		DeepResolve:             tpl.Options.DeepResolve,
 		DisableContextFunctions: tpl.Options.DisableContextFunctions,
 		DisableNestedFunctions:  tpl.Options.DisableNestedFunctions,
+		IgnoreVariableCase:      tpl.Options.IgnoreVariableCase,
 	}
 }
 
@@ -137,6 +141,7 @@ func NewChildExecutionContext(parent *ExecutionContext) *ExecutionContext {
 		DeepResolve:             parent.DeepResolve,
 		DisableContextFunctions: parent.DisableContextFunctions,
 		DisableNestedFunctions:  parent.DisableNestedFunctions,
+		IgnoreVariableCase:      parent.IgnoreVariableCase,
 	}
 	newctx.Shared = parent.Shared
 

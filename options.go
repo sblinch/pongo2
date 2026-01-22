@@ -24,6 +24,9 @@ type Options struct {
 
 	// If this is set to true, functions within context variables (such as struct member functions) cannot be called.
 	DisableNestedFunctions bool
+
+	// If this is set to true, struct fields, map keys, and variable names will be treated as case-insensitive.
+	IgnoreVariableCase bool
 }
 
 func newOptions() *Options {
@@ -34,6 +37,7 @@ func newOptions() *Options {
 		DeepResolve:             false,
 		DisableContextFunctions: false,
 		DisableNestedFunctions:  false,
+		IgnoreVariableCase:      false,
 	}
 }
 
@@ -45,6 +49,7 @@ func (opt *Options) Update(other *Options) *Options {
 	opt.DeepResolve = other.DeepResolve
 	opt.DisableContextFunctions = other.DisableContextFunctions
 	opt.DisableNestedFunctions = other.DisableNestedFunctions
+	opt.IgnoreVariableCase = other.IgnoreVariableCase
 
 	return opt
 }

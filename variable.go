@@ -435,11 +435,25 @@ func (vr *variableResolver) resolveDictDefinition(ctx *ExecutionContext) (*Value
 	return &Value{val: reflect.ValueOf(items), safe: true}, nil
 }
 
+func (vr *variableResolver) lookupInContext(m Context, key string, ignoreVariableCase bool) (any, bool) {
+	val, exists := m[key]
+	if !exists && ignoreVariableCase {
+		lowerKey := strings.ToLower(key)
+		for k, v := range m {
+			if strings.ToLower(k) == lowerKey {
+				val, exists = v, true
+				break
+			}
+		}
+	}
+	return val, exists
+}
+
 // lookupInitialValue looks up the first part of the variable in the context.
 func (vr *variableResolver) lookupInitialValue(ctx *ExecutionContext) reflect.Value {
-	val, inPrivate := ctx.Private[vr.parts[0].s]
+	val, inPrivate := vr.lookupInContext(ctx.Private, vr.parts[0].s, ctx.IgnoreVariableCase)
 	if !inPrivate {
-		val = ctx.Public[vr.parts[0].s]
+		val, _ = vr.lookupInContext(ctx.Public, vr.parts[0].s, ctx.IgnoreVariableCase)
 	}
 	return reflect.ValueOf(val)
 }
@@ -489,7 +503,7 @@ func (vr *variableResolver) resolvePartByType(
 	case varTypeInt:
 		return vr.resolveIntIndex(current, part)
 	case varTypeIdent:
-		return vr.resolveIdentifier(current, part)
+		return vr.resolveIdentifier(current, part, ctx.IgnoreVariableCase)
 	case varTypeSubscript:
 		return vr.resolveSubscript(ctx, current, part)
 	default:
@@ -518,13 +532,38 @@ func (vr *variableResolver) resolveIntIndex(current reflect.Value, part *variabl
 	}
 }
 
+func (vr *variableResolver) resolveStructField(current reflect.Value, fieldName string, ignoreCase bool) reflect.Value {
+	rv := current.FieldByName(fieldName)
+	if !rv.IsValid() && ignoreCase {
+		lowerName := strings.ToLower(fieldName)
+		rv = current.FieldByNameFunc(func(name string) bool {
+			return strings.ToLower(name) == lowerName
+		})
+	}
+	return rv
+}
+
+func (vr *variableResolver) resolveMapStringKey(current reflect.Value, key string, ignoreCase bool) reflect.Value {
+	rv := current.MapIndex(reflect.ValueOf(key))
+	if !rv.IsValid() && ignoreCase {
+		lowerName := strings.ToLower(key)
+		for _, mapKey := range current.MapKeys() {
+			if strings.ToLower(mapKey.String()) == lowerName {
+				rv = current.MapIndex(mapKey)
+				break
+			}
+		}
+	}
+	return rv
+}
+
 // resolveIdentifier resolves a field or map key access by name.
-func (vr *variableResolver) resolveIdentifier(current reflect.Value, part *variablePart) (reflect.Value, bool, error) {
+func (vr *variableResolver) resolveIdentifier(current reflect.Value, part *variablePart, ignoreCase bool) (reflect.Value, bool, error) {
 	switch current.Kind() {
 	case reflect.Struct:
-		return current.FieldByName(part.s), false, nil
+		return vr.resolveStructField(current, part.s, ignoreCase), false, nil
 	case reflect.Map:
-		return current.MapIndex(reflect.ValueOf(part.s)), false, nil
+		return vr.resolveMapStringKey(current, part.s, ignoreCase), false, nil
 	default:
 		return reflect.Value{}, false, fmt.Errorf("can't access a field by name on type %s (variable %s)",
 			current.Kind().String(), vr.String())
@@ -558,13 +597,17 @@ func (vr *variableResolver) resolveSubscript(
 		}
 		return reflect.Value{}, true, nil
 	case reflect.Struct:
-		return current.FieldByName(sv.String()), false, nil
+		return vr.resolveStructField(current, sv.String(), ctx.IgnoreVariableCase), false, nil
 	case reflect.Map:
 		if sv.IsNil() {
 			return reflect.Value{}, true, nil
 		}
 		if sv.val.Type().AssignableTo(current.Type().Key()) {
-			return current.MapIndex(sv.val), false, nil
+			if sv.val.Kind() == reflect.String {
+				return vr.resolveMapStringKey(current, sv.val.String(), ctx.IgnoreVariableCase), false, nil
+			} else {
+				return current.MapIndex(sv.val), false, nil
+			}
 		}
 		return reflect.Value{}, true, nil
 	default:
