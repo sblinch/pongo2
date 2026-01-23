@@ -54,11 +54,9 @@ func (v *Value) IsString() bool {
 
 func (v *Value) IsStringer() (isStringer bool) {
 	rv := v.getResolvedValue()
-	if rv.IsValid() {
-		isStringer = rv.Kind() == reflect.String || v.IsTemplate()
-		if !isStringer {
-			_, isStringer = reflect.TypeAssert[fmt.Stringer](rv)
-		}
+	isStringer = rv.Kind() == reflect.String || v.IsTemplate()
+	if !isStringer {
+		_, isStringer = TypeAssert[fmt.Stringer](v)
 	}
 	return isStringer
 }
@@ -102,7 +100,7 @@ func (v *Value) IsNumber() bool {
 
 // IsTime checks whether the underlying value is a time.Time.
 func (v *Value) IsTime() bool {
-	_, ok := v.Interface().(time.Time)
+	_, ok := TypeAssertResolved[time.Time](v)
 	return ok
 }
 
@@ -130,7 +128,7 @@ func (v *Value) IsScalar() bool {
 func (v *Value) IsTemplate() bool {
 	rv := v.getResolvedValue()
 	if rv.Kind() == reflect.Struct {
-		_, isTemplate := rv.Interface().(Template)
+		_, isTemplate := reflect.TypeAssert[Template](rv)
 		return isTemplate
 	}
 	return false
@@ -147,7 +145,7 @@ func (v *Value) EvaluateTemplate(ctx Context) (*Value, error) {
 			prev = val
 			val = val.Elem()
 		case reflect.Struct:
-			tpl, isTemplate := prev.Interface().(*Template)
+			tpl, isTemplate := reflect.TypeAssert[*Template](prev)
 			if !isTemplate {
 				return AsValue(nil), nil
 			}
@@ -182,8 +180,10 @@ func (v *Value) String() string {
 		return ""
 	}
 
-	if t, ok := reflect.TypeAssert[fmt.Stringer](v.val); ok {
-		return t.String()
+	if v.val.IsValid() {
+		if t, ok := TypeAssert[fmt.Stringer](v); ok {
+			return t.String()
+		}
 	}
 
 	rv := v.getResolvedValue()
@@ -333,7 +333,7 @@ func (v *Value) Bool() bool {
 // Time returns the underlying value as time.Time.
 // If the underlying value is not a time.Time, it returns the zero value of time.Time.
 func (v *Value) Time() time.Time {
-	tm, ok := v.Interface().(time.Time)
+	tm, ok := TypeAssertResolved[time.Time](v)
 	if ok {
 		return tm
 	}
@@ -1093,4 +1093,19 @@ func (vl valuesList) Less(i, j int) bool {
 
 func (vl valuesList) Swap(i, j int) {
 	vl[i], vl[j] = vl[j], vl[i]
+}
+
+func TypeAssertResolved[T any](v *Value) (t T, ok bool) {
+	rv := v.getResolvedValue()
+	if !rv.IsValid() {
+		return
+	}
+	return reflect.TypeAssert[T](rv)
+}
+
+func TypeAssert[T any](v *Value) (t T, ok bool) {
+	if !v.val.IsValid() {
+		return
+	}
+	return reflect.TypeAssert[T](v.val)
 }

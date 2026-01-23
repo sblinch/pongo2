@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net/url"
-	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -1032,7 +1031,7 @@ func filterCenter(in *Value, param *Value) (*Value, error) {
 //
 // Output: "14:30:00" (example)
 func filterDate(in *Value, param *Value) (*Value, error) {
-	t, isTime := in.Interface().(time.Time)
+	t, isTime := TypeAssertResolved[time.Time](in)
 	if !isTime {
 		return nil, &Error{
 			Sender:    "filter:date",
@@ -1847,14 +1846,14 @@ func filterYesno(in *Value, param *Value) (*Value, error) {
 // When reverse is false, computes timeDiff(inputTime, comparisonTime) (time since).
 // When reverse is true, computes timeDiff(comparisonTime, inputTime) (time until).
 func timeFilterHelper(in *Value, param *Value, reverse bool) (*Value, error) {
-	t, isTime := in.Interface().(time.Time)
+	t, isTime := TypeAssertResolved[time.Time](in)
 	if !isTime {
 		return emptyStringValue, nil
 	}
 
 	comparisonTime := time.Now()
 	if !param.IsNil() {
-		if paramTime, ok := param.Interface().(time.Time); ok {
+		if paramTime, ok := TypeAssertResolved[time.Time](param); ok {
 			comparisonTime = paramTime
 		}
 	}

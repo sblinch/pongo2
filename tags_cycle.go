@@ -63,7 +63,7 @@ func (node *tagCycleNode) Execute(ctx *ExecutionContext, writer TemplateWriter) 
 		return err
 	}
 
-	if t, ok := val.Interface().(*tagCycleValue); ok {
+	if t, ok := TypeAssert[*tagCycleValue](val); ok {
 		// {% cycle "test1" "test2"
 		// {% cycle cycleitem %}
 
