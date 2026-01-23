@@ -155,36 +155,6 @@ const emptyStr = ""
 
 var emptyStringValue = AsValue(emptyStr)
 
-// actualString takes a *Value and returns its string representation and true if it is a string or implements
-// fmt.Stringer, otherwise it returns an empty string and false. This can be used to save time processing string
-// representations of integers, etc., which definitely cannot contain certain substrings such as HTML.
-func actualString(v *Value) (string, bool) {
-	if v.IsNil() {
-		return emptyStr, false
-	}
-
-	rv := v.getResolvedValue()
-	kind := rv.Kind()
-
-	if kind == reflect.String {
-		return rv.String(), true
-	}
-	if t, ok := rv.Interface().(fmt.Stringer); ok {
-		return t.String(), true
-	}
-
-	switch kind {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64,
-		reflect.Bool:
-		return emptyStr, false
-	default:
-		// Value.String will return a string such as "<foo MyType>" in this scenario, so we have to treat it as a string
-		return rv.String(), true
-	}
-}
-
 func filterTruncatecharsHelper(s string, newLen int) string {
 	runes := []rune(s)
 	if newLen < len(runes) {
