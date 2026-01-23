@@ -124,6 +124,20 @@ func ApplyFilter(name string, value *Value, param *Value) (*Value, error) {
 func ApplyFilterArgs(name string, value *Value, args *Args) (*Value, error) {
 	fn, existing := builtinFilterArgs[name]
 	if !existing {
+		if len(args.args)+len(args.kwArgs) < 2 {
+			if f, existing := builtinFilters[name]; existing {
+				var param *Value
+				if args.Len() > 0 {
+					param = args.Value(0)
+				} else if len(args.kwArgs) > 0 {
+					for _, v := range args.kwArgs {
+						param = v
+					}
+				}
+				return f(value, param)
+			}
+		}
+
 		return nil, &Error{
 			Sender:    "applyfilter",
 			OrigError: fmt.Errorf("filter with name '%s' not found", name),
