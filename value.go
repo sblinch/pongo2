@@ -48,7 +48,19 @@ func (v *Value) getResolvedValue() reflect.Value {
 
 // IsString checks whether the underlying value is a string
 func (v *Value) IsString() bool {
-	return v.getResolvedValue().Kind() == reflect.String || v.IsTemplate()
+	rv := v.getResolvedValue()
+	return rv.Kind() == reflect.String || v.IsTemplate()
+}
+
+func (v *Value) IsStringer() (isStringer bool) {
+	rv := v.getResolvedValue()
+	if rv.IsValid() {
+		isStringer = rv.Kind() == reflect.String || v.IsTemplate()
+		if !isStringer {
+			_, isStringer = reflect.TypeAssert[fmt.Stringer](rv)
+		}
+	}
+	return isStringer
 }
 
 // IsBool checks whether the underlying value is a bool
@@ -170,7 +182,7 @@ func (v *Value) String() string {
 		return ""
 	}
 
-	if t, ok := v.Interface().(fmt.Stringer); ok {
+	if t, ok := reflect.TypeAssert[fmt.Stringer](v.val); ok {
 		return t.String()
 	}
 
