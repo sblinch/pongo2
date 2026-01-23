@@ -326,11 +326,13 @@ func (vr *variableResolver) resolve(ctx *ExecutionContext) (*Value, error) {
 func (vr *variableResolver) resolveTemplate(ctx *ExecutionContext, current reflect.Value) (reflect.Value, bool, error) {
 	switch current.Kind() {
 	case reflect.Ptr:
-		if vtpl, ok := current.Interface().(*Template); ok {
-			if evaluated, err := vtpl.Evaluate(ctx.Public); err == nil {
-				return reflect.ValueOf(evaluated), true, nil
-			} else {
-				return reflect.Value{}, false, err
+		if current.IsValid() {
+			if vtpl, ok := reflect.TypeAssert[*Template](current); ok {
+				if evaluated, err := vtpl.Evaluate(ctx.Public); err == nil {
+					return reflect.ValueOf(evaluated), true, nil
+				} else {
+					return reflect.Value{}, false, err
+				}
 			}
 		}
 	}
@@ -388,7 +390,7 @@ func (vr *variableResolver) resolveNestedTemplates(ctx *ExecutionContext, curren
 		return current, modified, nil
 
 	case reflect.Ptr:
-		if vtpl, ok := current.Interface().(*Template); ok {
+		if vtpl, ok := reflect.TypeAssert[*Template](current); ok {
 			if evaluated, err := vtpl.Evaluate(ctx.Public); err == nil {
 				return reflect.ValueOf(evaluated), true, nil
 			} else {
@@ -460,9 +462,10 @@ func (vr *variableResolver) lookupInitialValue(ctx *ExecutionContext) reflect.Va
 
 // unpackValue unpacks a *Value if the current value is of that type.
 func (vr *variableResolver) unpackValue(current reflect.Value, isSafe bool) (reflect.Value, bool) {
-	if current.Type() == typeOfValuePtr {
-		tmpValue := current.Interface().(*Value)
-		return tmpValue.val, tmpValue.safe
+	if current.IsValid() {
+		if tmpValue, ok := reflect.TypeAssert[*Value](current); ok {
+			return tmpValue.val, tmpValue.safe
+		}
 	}
 	return current, isSafe
 }
@@ -778,13 +781,16 @@ func (vr *variableResolver) executeCall(
 	}
 
 	result := &callResult{}
-	if rv.Type() != typeOfValuePtr {
-		result.value = reflect.ValueOf(rv.Interface())
-	} else {
-		val := rv.Interface().(*Value)
-		result.value = val.val
-		result.isSafe = val.safe
+	if rv.IsValid() {
+		if val, ok := reflect.TypeAssert[*Value](rv); ok {
+			result.value = val.val
+			result.isSafe = val.safe
+			return result, nil
+		}
 	}
+
+	result.value = reflect.New(rv.Type()).Elem()
+	result.value.Set(rv)
 
 	return result, nil
 }
