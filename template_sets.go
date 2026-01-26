@@ -226,6 +226,18 @@ func (set *TemplateSet) ReplaceFilterArgs(name string, fn FilterArgsFunction) er
 	return nil
 }
 
+func (set *TemplateSet) AliasFilter(name, alias string) error {
+	if !set.FilterExists(name) {
+		return fmt.Errorf("filter with name '%s' does not exist (therefore cannot be aliased)", name)
+	}
+	if _, exists := set.filters[name]; exists {
+		set.filters[alias] = set.filters[name]
+	} else {
+		set.filterArgs[alias] = set.filterArgs[name]
+	}
+	return nil
+}
+
 // RegisterTag registers a new tag for this template set.
 func (set *TemplateSet) RegisterTag(name string, parserFn TagParser) error {
 	set.initOnce.Do(set.initBuiltins)
